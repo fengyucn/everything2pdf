@@ -1,0 +1,106 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build with PyInstaller
+        run: pyinstaller build_linux.spec
+      
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: everything2pdf-linux
+          path: dist/everything2pdf
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build with PyInstaller
+        run: pyinstaller build_windows.spec
+      
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: everything2pdf-windows
+          path: dist/everything2pdf.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: everything2pdf-linux
+          path: linux
+      
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: everything2pdf-windows
+          path: windows
+      
+      - name: Prepare release files
+        run: |
+          chmod +x linux/everything2pdf
+          mv linux/everything2pdf everything2pdf-linux
+          mv windows/everything2pdf.exe everything2pdf-windows.exe
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            everything2pdf-linux
+            everything2pdf-windows.exe
+          body: |
+            ## Everything to PDF Converter
+            
+            文档转PDF工具，支持图片、Office文档、PDF合并转换。
+            
+            ### 下载
+            - **Linux**: `everything2pdf-linux`
+            - **Windows**: `everything2pdf-windows.exe`
+            
+            ### 使用说明
+            1. 下载对应系统的可执行文件
+            2. 双击运行，自动打开浏览器
+            3. 拖拽或选择文件，点击"开始转换"
+            
+            ### 可选依赖
+            安装 LibreOffice 可获得更好的 Office 文档转换效果

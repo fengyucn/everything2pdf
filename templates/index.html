@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Everything to PDF - 文档转换工具</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Everything to PDF</h1>
+            <p class="subtitle">图片、文档一键转换为PDF</p>
+        </header>
+
+        <!-- 状态提示 -->
+        <div id="status-bar" class="status-bar {% if has_libreoffice %}status-success{% else %}status-warning{% endif %}">
+            {% if has_libreoffice %}
+                <span class="status-icon">&#10003;</span>
+                <span>LibreOffice 已检测到 - Office文档将以最佳质量转换</span>
+            {% else %}
+                <span class="status-icon">&#9888;</span>
+                <span>未检测到 LibreOffice - Office文档将使用基础模式转换</span>
+                <div class="install-hint">
+                    建议安装 LibreOffice 以获得更好的转换效果：
+                    <a href="https://www.libreoffice.org/download/download/" target="_blank">Windows下载</a> |
+                    <code>sudo apt install libreoffice</code> (Linux)
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- 上传区域 -->
+        <div class="upload-section">
+            <div id="drop-zone" class="drop-zone">
+                <div class="drop-zone-content">
+                    <div class="drop-icon">&#128196;</div>
+                    <p>拖拽文件到此处</p>
+                    <p class="drop-hint">或</p>
+                    <label class="upload-btn">
+                        <input type="file" id="file-input" multiple accept="{{ supported_extensions | join(',') }}">
+                        添加文件
+                    </label>
+                    <p class="supported-formats">
+                        支持格式：JPG, PNG, BMP, GIF, TIFF, WEBP, PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 文件列表 -->
+        <div id="file-list-section" class="file-list-section" style="display: none;">
+            <div class="file-list-header">
+                <h3>已选文件 <span id="file-count">(0)</span></h3>
+                <div class="file-list-actions">
+                    <button id="clear-btn" class="btn btn-secondary">清空列表</button>
+                </div>
+            </div>
+            <p class="drag-hint">拖拽调整顺序，顺序决定PDF中的页面排列</p>
+            <ul id="file-list" class="file-list"></ul>
+        </div>
+
+        <!-- 转换按钮 -->
+        <div id="convert-section" class="convert-section" style="display: none;">
+            <button id="convert-btn" class="btn btn-primary btn-large">
+                开始转换
+            </button>
+        </div>
+
+        <!-- 进度/结果 -->
+        <div id="result-section" class="result-section" style="display: none;">
+            <div id="progress-bar" class="progress-bar" style="display: none;">
+                <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <div id="result-message" class="result-message"></div>
+            <a id="download-link" class="btn btn-success btn-large" style="display: none;" download>
+                下载PDF
+            </a>
+        </div>
+
+        <footer>
+            <p>Everything to PDF Converter</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
