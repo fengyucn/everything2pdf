@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-linux-x64:
-    runs-on: ubuntu-20.04  # 使用较旧版本提高glibc兼容性
+    runs-on: ubuntu-20.04
     steps:
       - uses: actions/checkout@v4
       
@@ -30,39 +30,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: everything2pdf-linux-x64
-          path: dist/everything2pdf
-
-  build-linux-arm64:
-    runs-on: ubuntu-20.04  # 使用较旧版本提高glibc兼容性
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
-      
-      - name: Build in ARM64 container
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: ubuntu18.04  # glibc 2.27，提供最佳兼容性
-          githubToken: ${{ github.token }}
-          install: |
-            apt-get update -q -y
-            apt-get install -q -y python3 python3-pip python3-venv
-          run: |
-            python3 -m venv venv
-            source venv/bin/activate
-            pip install --upgrade pip
-            pip install -r requirements.txt
-            pip install pyinstaller
-            pyinstaller build_linux.spec
-      
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: everything2pdf-linux-arm64
           path: dist/everything2pdf
 
   build-windows:
@@ -91,7 +58,7 @@ jobs:
           path: dist/everything2pdf.exe
 
   release:
-    needs: [build-linux-x64, build-linux-arm64, build-windows]
+    needs: [build-linux-x64, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -103,12 +70,6 @@ jobs:
           name: everything2pdf-linux-x64
           path: linux-x64
       
-      - name: Download Linux ARM64 artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: everything2pdf-linux-arm64
-          path: linux-arm64
-      
       - name: Download Windows artifact
         uses: actions/download-artifact@v4
         with:
@@ -118,9 +79,7 @@ jobs:
       - name: Prepare release files
         run: |
           chmod +x linux-x64/everything2pdf
-          chmod +x linux-arm64/everything2pdf
           mv linux-x64/everything2pdf everything2pdf-linux-x64
-          mv linux-arm64/everything2pdf everything2pdf-linux-arm64
           mv windows/everything2pdf.exe everything2pdf-windows.exe
       
       - name: Create Release
@@ -128,7 +87,6 @@ jobs:
         with:
           files: |
             everything2pdf-linux-x64
-            everything2pdf-linux-arm64
             everything2pdf-windows.exe
           body: |
             ## Everything to PDF Converter
@@ -136,19 +94,16 @@ jobs:
             文档转PDF工具，支持图片、Office文档、PDF合并转换。
             
             ### 下载
-            | 系统 | 架构 | 文件 |
-            |------|------|------|
-            | Linux | x86_64 (Intel/AMD) | `everything2pdf-linux-x64` |
-            | Linux | ARM64 (树莓派/M系列) | `everything2pdf-linux-arm64` |
-            | Windows | x86_64 | `everything2pdf-windows.exe` |
+            | 系统 | 文件 |
+            |------|------|
+            | Linux x64 | `everything2pdf-linux-x64` |
+            | Windows | `everything2pdf-windows.exe` |
             
             ### 使用说明
-            1. 下载对应系统和架构的可执行文件
-            2. Linux需要添加执行权限: `chmod +x everything2pdf-linux-*`
+            1. 下载对应系统的可执行文件
+            2. Linux需添加执行权限: `chmod +x everything2pdf-linux-x64`
             3. 运行程序，自动打开浏览器
             4. 拖拽或选择文件，点击"开始转换"
             
             ### 可选依赖
-            安装 LibreOffice 可获得更好的 Office 文档转换效果:
-            - Linux: `sudo apt install libreoffice`
-            - Windows: 下载安装 [LibreOffice](https://www.libreoffice.org/download/)
+            安装 LibreOffice 可获得更好的 Office 文档转换效果
