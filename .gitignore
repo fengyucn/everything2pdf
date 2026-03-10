@@ -31,3 +31,6 @@ Thumbs.db
 *.tmp
 *.temp
 arms_cache/
+
+# Project specific
+AGENTS.md
