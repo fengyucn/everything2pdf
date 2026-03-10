@@ -12,6 +12,9 @@ const fileListSection = document.getElementById('file-list-section');
 const fileList = document.getElementById('file-list');
 const fileCount = document.getElementById('file-count');
 const clearBtn = document.getElementById('clear-btn');
+const engineSection = document.getElementById('engine-section');
+const engineSelect = document.getElementById('engine-select');
+const engineDescription = document.getElementById('engine-description');
 const convertSection = document.getElementById('convert-section');
 const convertBtn = document.getElementById('convert-btn');
 const resultSection = document.getElementById('result-section');
@@ -19,6 +22,9 @@ const progressBar = document.getElementById('progress-bar');
 const progressFill = document.getElementById('progress-fill');
 const resultMessage = document.getElementById('result-message');
 const downloadLink = document.getElementById('download-link');
+
+// 引擎信息缓存
+let availableEngines = [];
 
 // 文件类型图标
 const fileIcons = {
@@ -35,17 +41,66 @@ function formatSize(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+// 加载可用引擎列表
+async function loadEngines() {
+    try {
+        const response = await fetch('/api/engines');
+        if (response.ok) {
+            const data = await response.json();
+            availableEngines = data.engines;
+            populateEngineSelect();
+        }
+    } catch (err) {
+        console.error('加载引擎列表失败:', err);
+    }
+}
+
+// 填充引擎选择下拉框
+function populateEngineSelect() {
+    // 清空现有选项（保留自动选择）
+    engineSelect.innerHTML = '<option value="auto" selected>自动选择（推荐）</option>';
+    
+    // 添加可用引擎
+    availableEngines.forEach(engine => {
+        const option = document.createElement('option');
+        option.value = engine.id;
+        option.textContent = engine.name;
+        engineSelect.appendChild(option);
+    });
+}
+
+// 更新引擎描述
+function updateEngineDescription() {
+    const selectedEngine = engineSelect.value;
+    
+    if (selectedEngine === 'auto') {
+        engineDescription.textContent = '系统将自动选择最佳可用引擎';
+        return;
+    }
+    
+    const engine = availableEngines.find(e => e.id === selectedEngine);
+    if (engine) {
+        engineDescription.textContent = engine.description;
+    }
+}
+
 // 更新界面显示
 function updateUI() {
     const count = files.length;
     fileCount.textContent = `(${count})`;
     
+    // 检查是否有Office文件
+    const hasOfficeFiles = files.some(f => f.type === 'office');
+    
     if (count > 0) {
         fileListSection.style.display = 'block';
         convertSection.style.display = 'block';
+        // 只有有Office文件时才显示引擎选择
+        engineSection.style.display = hasOfficeFiles ? 'block' : 'none';
     } else {
         fileListSection.style.display = 'none';
         convertSection.style.display = 'none';
+        engineSection.style.display = 'none';
     }
     
     renderFileList();
@@ -207,6 +262,9 @@ async function convertFiles() {
         return;
     }
     
+    // 获取选择的引擎
+    const selectedEngine = engineSelect.value;
+    
     // 显示进度
     resultSection.style.display = 'block';
     progressBar.style.display = 'block';
@@ -231,7 +289,8 @@ async function convertFiles() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                file_ids: files.map(f => f.id)
+                file_ids: files.map(f => f.id),
+                engine: selectedEngine
             })
         });
         
@@ -304,5 +363,10 @@ clearBtn.addEventListener('click', clearFiles);
 // 转换按钮
 convertBtn.addEventListener('click', convertFiles);
 
+// 引擎选择变化事件
+engineSelect.addEventListener('change', updateEngineDescription);
+
 // 初始化
+loadEngines();  // 加载引擎列表
 updateUI();
+updateEngineDescription();  // 初始化引擎描述

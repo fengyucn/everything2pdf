@@ -16,7 +16,9 @@ from converter import (
     get_libreoffice_status,
     get_supported_extensions,
     convert_files_to_pdf,
-    get_file_type
+    get_file_type,
+    get_available_engines,
+    get_conversion_engines_status
 )
 
 # 获取资源路径（支持PyInstaller打包）
@@ -61,11 +63,22 @@ def index():
 def api_status():
     """获取系统状态"""
     has_libreoffice, lo_path = get_libreoffice_status()
+    engines_status = get_conversion_engines_status()
     
     return jsonify({
         'has_libreoffice': has_libreoffice,
         'libreoffice_path': lo_path,
-        'supported_extensions': get_supported_extensions()
+        'supported_extensions': get_supported_extensions(),
+        'engines': engines_status['engines'],
+        'recommended_engine': engines_status['recommended']
+    })
+
+
+@app.route('/api/engines')
+def api_engines():
+    """获取可用的转换引擎列表"""
+    return jsonify({
+        'engines': get_available_engines()
     })
 
 
@@ -146,6 +159,7 @@ def api_convert():
         return jsonify({'error': '没有指定文件'}), 400
     
     file_ids = data['file_ids']
+    engine = data.get('engine', 'auto')  # 获取选择的引擎，默认自动
     
     # 获取文件路径列表（按顺序）
     file_paths = []
@@ -165,11 +179,12 @@ def api_convert():
     # 获取LibreOffice路径
     has_lo, lo_path = get_libreoffice_status()
     
-    # 执行转换
+    # 执行转换（传入选择的引擎）
     success, message = convert_files_to_pdf(
         file_paths,
         output_path,
-        libreoffice_path=lo_path
+        libreoffice_path=lo_path,
+        engine=engine
     )
     
     if success:

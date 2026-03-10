@@ -429,6 +429,65 @@ header h1 {
     text-shadow: 0 0 10px rgba(255, 71, 87, 0.5);
 }
 
+/* 引擎选择区域 */
+.engine-section {
+    margin-bottom: 20px;
+    padding: 15px 20px;
+    background: rgba(0, 50, 80, 0.2);
+    border-radius: 12px;
+    border: 1px solid rgba(0, 150, 200, 0.2);
+}
+
+.engine-selector {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.engine-selector label {
+    color: #a0b5c8;
+    font-weight: 500;
+    font-size: 0.95em;
+}
+
+.engine-select {
+    padding: 10px 15px;
+    font-size: 0.95em;
+    background: rgba(15, 25, 40, 0.8);
+    color: #d0e0f0;
+    border: 1px solid rgba(0, 150, 200, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    min-width: 180px;
+    transition: all 0.3s ease;
+}
+
+.engine-select:hover {
+    border-color: #00d4ff;
+    background: rgba(0, 80, 120, 0.3);
+}
+
+.engine-select:focus {
+    outline: none;
+    border-color: #00d4ff;
+    box-shadow: 0 0 15px rgba(0, 200, 255, 0.3);
+}
+
+.engine-select option {
+    background: #0d1520;
+    color: #d0e0f0;
+    padding: 8px;
+}
+
+.engine-description {
+    color: #5a7a95;
+    font-size: 0.85em;
+    font-style: italic;
+    flex: 1;
+    min-width: 200px;
+}
+
 /* 转换区域 */
 .convert-section {
     text-align: center;
