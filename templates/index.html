@@ -15,18 +15,13 @@
 
         <!-- 状态提示 -->
         <div id="status-bar" class="status-bar {% if has_libreoffice %}status-success{% else %}status-warning{% endif %}">
-            {% if has_libreoffice %}
-                <span class="status-icon">&#10003;</span>
-                <span>LibreOffice 已检测到 - Office文档将以最佳质量转换</span>
-            {% else %}
-                <span class="status-icon">&#9888;</span>
-                <span>未检测到 LibreOffice - Office文档将使用基础模式转换</span>
-                <div class="install-hint">
-                    建议安装 LibreOffice 以获得更好的转换效果：
-                    <a href="https://www.libreoffice.org/download/download/" target="_blank">Windows下载</a> |
-                    <code>sudo apt install libreoffice</code> (Linux)
-                </div>
-            {% endif %}
+            <span class="status-icon" id="status-icon">{% if has_libreoffice %}&#10003;{% else %}&#9888;{% endif %}</span>
+            <span id="status-text">{% if has_libreoffice %}LibreOffice 已检测到 - 多引擎转换可用{% else %}未检测到 LibreOffice - 将使用基础模式转换{% endif %}</span>
+            <div class="install-hint" id="install-hint" {% if has_libreoffice %}style="display: none;"{% endif %}>
+                建议安装 LibreOffice 以获得更好的转换效果：
+                <a href="https://www.libreoffice.org/download/download/" target="_blank">Windows下载</a> |
+                <code>sudo apt install libreoffice</code> (Linux)
+            </div>
         </div>
 
         <!-- 上传区域 -->
@@ -57,6 +52,17 @@
             </div>
             <p class="drag-hint">拖拽调整顺序，顺序决定PDF中的页面排列</p>
             <ul id="file-list" class="file-list"></ul>
+        </div>
+
+        <!-- 转换引擎选择 -->
+        <div id="engine-section" class="engine-section" style="display: none;">
+            <div class="engine-selector">
+                <label for="engine-select">转换引擎：</label>
+                <select id="engine-select" class="engine-select">
+                    <option value="auto" selected>自动选择（推荐）</option>
+                </select>
+                <span id="engine-description" class="engine-description"></span>
+            </div>
         </div>
 
         <!-- 转换按钮 -->
