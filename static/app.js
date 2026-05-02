@@ -221,9 +221,14 @@ async function uploadFiles(fileObjects) {
 // 删除文件
 async function removeFile(fileId) {
     try {
-        await fetch(`/api/remove/${fileId}`, { method: 'DELETE' });
-        files = files.filter(f => f.id !== fileId);
-        updateUI();
+        const response = await fetch(`/api/remove/${fileId}`, { method: 'DELETE' });
+        if (response.ok) {
+            files = files.filter(f => f.id !== fileId);
+            updateUI();
+        } else if (response.status !== 404) {
+            // 404 表示服务器已无此文件，前端仍移除；其他错误给用户提示
+            console.error('删除失败:', response.status);
+        }
     } catch (err) {
         console.error('删除失败:', err);
     }

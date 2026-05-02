@@ -8,6 +8,7 @@ import uuid
 import tempfile
 import webbrowser
 import threading
+import time
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -18,7 +19,8 @@ from converter import (
     convert_files_to_pdf,
     get_file_type,
     get_available_engines,
-    get_conversion_engines_status
+    get_conversion_engines_status,
+    reset_engine_cache
 )
 
 # 获取资源路径（支持PyInstaller打包）
@@ -41,8 +43,9 @@ app = Flask(
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 最大500MB
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
 
-# 存储上传的文件信息
+# 存储上传的文件信息（使用线程锁保护并发安全）
 uploaded_files = {}
+uploaded_files_lock = threading.Lock()
 
 
 @app.route('/')
@@ -74,6 +77,15 @@ def api_status():
     })
 
 
+@app.route('/api/refresh-engines', methods=['POST'])
+def api_refresh_engines():
+    """刷新引擎状态，重新检测可用引擎"""
+    reset_engine_cache()
+    return jsonify({
+        'engines': get_available_engines()
+    })
+
+
 @app.route('/api/engines')
 def api_engines():
     """获取可用的转换引擎列表"""
@@ -90,6 +102,7 @@ def api_upload():
     
     files = request.files.getlist('files')
     results = []
+    file_info_map = {}
     
     for file in files:
         if file.filename:
@@ -111,7 +124,7 @@ def api_upload():
                 'type': file_type,
                 'size': os.path.getsize(save_path)
             }
-            uploaded_files[file_id] = file_info
+            file_info_map[file_id] = file_info
             
             results.append({
                 'id': file_id,
@@ -120,19 +133,24 @@ def api_upload():
                 'size': file_info['size']
             })
     
+    with uploaded_files_lock:
+        for fid, finfo in file_info_map.items():
+            uploaded_files[fid] = finfo
+    
     return jsonify({'files': results})
 
 
 @app.route('/api/remove/<file_id>', methods=['DELETE'])
 def api_remove(file_id):
     """删除已上传的文件"""
-    if file_id in uploaded_files:
-        file_info = uploaded_files.pop(file_id)
-        try:
-            os.remove(file_info['path'])
-        except Exception:
-            pass
-        return jsonify({'success': True})
+    with uploaded_files_lock:
+        if file_id in uploaded_files:
+            file_info = uploaded_files.pop(file_id)
+            try:
+                os.remove(file_info['path'])
+            except OSError:
+                pass
+            return jsonify({'success': True})
     
     return jsonify({'error': '文件不存在'}), 404
 
@@ -140,13 +158,13 @@ def api_remove(file_id):
 @app.route('/api/clear', methods=['POST'])
 def api_clear():
     """清空所有上传的文件"""
-    for file_id, file_info in list(uploaded_files.items()):
-        try:
-            os.remove(file_info['path'])
-        except Exception:
-            pass
-    
-    uploaded_files.clear()
+    with uploaded_files_lock:
+        for file_id, file_info in list(uploaded_files.items()):
+            try:
+                os.remove(file_info['path'])
+            except OSError:
+                pass
+        uploaded_files.clear()
     return jsonify({'success': True})
 
 
@@ -163,17 +181,25 @@ def api_convert():
     
     # 获取文件路径列表（按顺序）
     file_paths = []
-    for file_id in file_ids:
-        if file_id in uploaded_files:
-            file_paths.append(uploaded_files[file_id]['path'])
-        else:
-            return jsonify({'error': f'文件不存在: {file_id}'}), 404
+    with uploaded_files_lock:
+        for file_id in file_ids:
+            if file_id in uploaded_files:
+                file_paths.append(uploaded_files[file_id]['path'])
+            else:
+                return jsonify({'error': f'文件不存在: {file_id}'}), 404
     
     if not file_paths:
         return jsonify({'error': '没有有效的文件'}), 400
     
-    # 生成输出文件
-    output_filename = f"converted_{uuid.uuid4().hex[:8]}.pdf"
+    # 生成输出文件（文件名包含原文件名和时间戳，用于下载）
+    timestamp = time.strftime('%Y%m%d_%H%M%S')
+    if len(file_paths) == 1:
+        # 单文件：使用原文件名
+        original_basename = Path(file_paths[0]).stem
+        output_filename = f"{original_basename}_{timestamp}.pdf"
+    else:
+        # 多文件：使用通用名称
+        output_filename = f"converted_{timestamp}.pdf"
     output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
     
     # 获取LibreOffice路径
@@ -200,17 +226,25 @@ def api_convert():
 @app.route('/api/download/<filename>')
 def api_download(filename):
     """下载转换后的PDF"""
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    # 安全检查：防止路径遍历攻击
+    upload_folder = Path(app.config['UPLOAD_FOLDER']).resolve()
+    requested_path = (upload_folder / filename).resolve()
     
-    if os.path.exists(file_path):
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name='converted.pdf',
-            mimetype='application/pdf'
-        )
+    if not requested_path.exists() or not requested_path.is_file():
+        return jsonify({'error': '文件不存在'}), 404
     
-    return jsonify({'error': '文件不存在'}), 404
+    # 确保文件确实在上传目录内
+    if not requested_path.is_relative_to(upload_folder):
+        return jsonify({'error': '文件不存在'}), 404
+    
+    # 返回实际文件名供浏览器使用
+    actual_filename = requested_path.name
+    return send_file(
+        requested_path,
+        as_attachment=True,
+        download_name=actual_filename,
+        mimetype='application/pdf'
+    )
 
 
 def open_browser(port):

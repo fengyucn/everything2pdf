@@ -87,6 +87,14 @@ _libreoffice_checked = False
 _engine_availability_cache = {}
 
 
+def reset_engine_cache() -> None:
+    """重置引擎状态缓存，下次调用时重新检测"""
+    global _engine_availability_cache, _libreoffice_path, _libreoffice_checked
+    _engine_availability_cache = {}
+    _libreoffice_path = None
+    _libreoffice_checked = False
+
+
 def _run_libreoffice(lo_path: str, args: List[str], timeout: int = 120) -> subprocess.CompletedProcess:
     """运行LibreOffice命令，自动处理库路径"""
     env = os.environ.copy()
@@ -184,6 +192,7 @@ def check_weasyprint() -> bool:
 def get_engine_info() -> Dict[ConversionEngine, EngineInfo]:
     """获取所有引擎的信息"""
     global _engine_availability_cache
+    # 注意：缓存由调用方通过 reset_engine_cache() 主动清除
     
     if not _engine_availability_cache:
         # 检查LibreOffice（验证可运行）
@@ -269,37 +278,53 @@ def get_file_type(filepath: str) -> str:
         return 'unknown'
 
 
-def convert_image_to_pdf_bytes(image_path: str) -> bytes:
-    """将单个图片转换为PDF字节"""
-    with open(image_path, 'rb') as f:
-        img_bytes = f.read()
+def convert_image_to_image_bytes(image_path: str, dpi: int = DEFAULT_DPI) -> List[bytes]:
+    """将单个图片转换为PNG字节列表，支持多页 TIFF（每帧一页）"""
+    results = []
+    img = Image.open(image_path)
     
-    # 检查图片格式，某些格式需要先转换
-    try:
-        img = Image.open(io.BytesIO(img_bytes))
+    # 检查是否为多帧图片
+    is_multiframe = hasattr(img, 'n_frames') and img.n_frames > 1
+    n_frames = img.n_frames if is_multiframe else 1
+    
+    for frame_idx in range(n_frames):
+        if is_multiframe:
+            img.seek(frame_idx)
+        
+        # 转换为 RGB
         if img.mode in ('RGBA', 'P'):
-            # 转换为RGB模式
             rgb_img = Image.new('RGB', img.size, (255, 255, 255))
             if img.mode == 'RGBA':
                 rgb_img.paste(img, mask=img.split()[3])
             else:
                 rgb_img.paste(img)
-            
-            buf = io.BytesIO()
-            rgb_img.save(buf, format='JPEG', quality=95)
-            img_bytes = buf.getvalue()
+            frame_img = rgb_img
         elif img.format == 'GIF':
-            # GIF转JPEG
-            rgb_img = img.convert('RGB')
+            frame_img = img.convert('RGB')
+        elif img.mode != 'RGB':
+            frame_img = img.convert('RGB')
+        else:
+            frame_img = img
+        
+        # 尝试用 PyMuPDF 渲染（支持 DPI 缩放）
+        try:
             buf = io.BytesIO()
-            rgb_img.save(buf, format='JPEG', quality=95)
-            img_bytes = buf.getvalue()
-    except Exception:
-        pass
+            frame_img.save(buf, format=frame_img.format or 'PNG')
+            buf.seek(0)
+            pdf_bytes = img2pdf.convert(buf.read())
+            temp_pdf = fitz.open(stream=pdf_bytes, filetype='pdf')
+            zoom = dpi / 72
+            matrix = fitz.Matrix(zoom, zoom)
+            pix = temp_pdf[0].get_pixmap(matrix=matrix)
+            results.append(pix.tobytes('png'))
+            temp_pdf.close()
+        except Exception:
+            # 后备：直接用 PIL 转 PNG
+            png_buf = io.BytesIO()
+            frame_img.save(png_buf, format='PNG')
+            results.append(png_buf.getvalue())
     
-    # 使用img2pdf转换
-    pdf_bytes = img2pdf.convert(img_bytes)
-    return pdf_bytes
+    return results
 
 
 def pdf_to_images(pdf_path: str, dpi: int = DEFAULT_DPI) -> List[bytes]:
@@ -613,7 +638,7 @@ def convert_office_to_pdf(
     output_dir: str,
     engine: ConversionEngine = ConversionEngine.AUTO,
     libreoffice_path: Optional[str] = None
-) -> Tuple[Optional[str], str]:
+) -> Tuple[Optional[str], str, Optional[str]]:
     """
     转换Office文档为PDF，支持多引擎选择
     
@@ -624,10 +649,11 @@ def convert_office_to_pdf(
         libreoffice_path: LibreOffice路径（可选）
     
     Returns:
-        (PDF路径, 使用的引擎名称)
+        (PDF路径, 使用的引擎名称, 失败的用户指定引擎)
     """
     ext = Path(office_path).suffix.lower()
     engines_info = get_engine_info()
+    fallback_failed_engine = None  # 记录用户指定引擎是否失败
     
     def try_engine(eng: ConversionEngine) -> Optional[Tuple[str, str]]:
         """尝试用指定引擎转换，返回 (pdf路径, 引擎名) 或 None"""
@@ -670,13 +696,14 @@ def convert_office_to_pdf(
             if info.available and ext in info.supported_formats:
                 ret = try_engine(eng)
                 if ret:
-                    return ret
+                    return ret[0], ret[1], None
     else:
         # 指定引擎模式：先尝试指定的引擎
         ret = try_engine(engine)
         if ret:
-            return ret
-        # 指定引擎失败，回退到其他可用引擎
+            return ret[0], ret[1], None
+        # 指定引擎失败，记录并回退到其他可用引擎
+        fallback_failed_engine = engine.value
         sorted_engines = sorted(
             [(e, i) for e, i in engines_info.items()],
             key=lambda x: x[1].priority
@@ -685,9 +712,9 @@ def convert_office_to_pdf(
             if eng != engine and info.available and ext in info.supported_formats:
                 ret = try_engine(eng)
                 if ret:
-                    return ret
+                    return ret[0], ret[1], fallback_failed_engine
     
-    return None, 'failed'
+    return None, 'failed', None
 
 
 def images_to_pdf(image_bytes_list: List[bytes], output_path: str):
@@ -742,6 +769,7 @@ def convert_files_to_pdf(
     all_images = []
     temp_dir = tempfile.mkdtemp()
     used_engines = set()
+    fallback_engines = []  # 记录所有降级的引擎
     
     try:
         total = len(file_paths)
@@ -753,35 +781,24 @@ def convert_files_to_pdf(
             file_type = get_file_type(file_path)
             
             if file_type == 'image':
-                # 图片：直接转为PDF字节，再转为图片
+                # 图片：转为图片字节（支持多页 TIFF）
                 try:
-                    pdf_bytes = convert_image_to_pdf_bytes(file_path)
-                    # 用PyMuPDF读取PDF字节并转为图片
-                    temp_pdf = fitz.open(stream=pdf_bytes, filetype='pdf')
-                    zoom = dpi / 72
-                    matrix = fitz.Matrix(zoom, zoom)
-                    for page in temp_pdf:
-                        pix = page.get_pixmap(matrix=matrix)
-                        all_images.append(pix.tobytes('png'))
-                    temp_pdf.close()
+                    img_bytes_list = convert_image_to_image_bytes(file_path, dpi)
+                    all_images.extend(img_bytes_list)
                 except Exception as e:
-                    # 如果img2pdf失败，尝试直接用PIL
-                    img = Image.open(file_path)
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
-                    buf = io.BytesIO()
-                    img.save(buf, format='PNG')
-                    all_images.append(buf.getvalue())
+                    return False, f"无法转换图片: {Path(file_path).name} ({e})"
             
             elif file_type == 'office':
                 # Office文档：使用多引擎转换
-                pdf_path, used_engine = convert_office_to_pdf(
+                pdf_path, used_engine, fallback_failed = convert_office_to_pdf(
                     file_path, temp_dir, selected_engine, libreoffice_path
                 )
                 if pdf_path:
                     images = pdf_to_images(pdf_path, dpi)
                     all_images.extend(images)
                     used_engines.add(used_engine)
+                    if fallback_failed:
+                        fallback_engines.append(fallback_failed)
                 else:
                     return False, f"无法转换文件: {Path(file_path).name}"
             
@@ -800,7 +817,10 @@ def convert_files_to_pdf(
         if all_images:
             images_to_pdf(all_images, output_path)
             engines_str = ", ".join(sorted(used_engines)) if used_engines else "直接处理"
-            return True, f"成功转换 {len(file_paths)} 个文件 (引擎: {engines_str})"
+            fallback_msg = ""
+            if fallback_engines:
+                fallback_msg = f" (注意: {', '.join(fallback_engines)} 引擎不可用，已使用替代方案)"
+            return True, f"成功转换 {len(file_paths)} 个文件 (引擎: {engines_str}){fallback_msg}"
         else:
             return False, "没有可转换的内容"
     
